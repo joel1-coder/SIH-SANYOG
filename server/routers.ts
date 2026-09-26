@@ -1,0 +1,187 @@
+import { customAlphabet, nanoid } from "nanoid";
+import { parse } from "cookie";
+import { z } from "zod";
+import { getSessionCookieOptions } from "./_core/cookies";
+import { COOKIE_NAME } from "@shared/const";
+import { publicProcedure, router } from "./_core/trpc";
+import type { DashboardActionInput, Priority, SanyogRequest, UserRole } from "@shared/types";
+import { store, appendAudit, getRequest, updateConnector, getDepartment } from "./services/demoStore";
+import { normalizeCitizenMasterId } from "./services/citizenIdentityService";
+import { isPotentialDuplicate } from "./services/deduplicationService";
+import { findSemanticDuplicates, clusterReports } from "./services/nlpClusteringService";
+import { getAllowedDepartments, resolveDepartments } from "./services/routingService";
+import { dispatchToConnectors } from "./services/connectorService";
+
+const roleSchema = z.enum(["citizen", "official", "admin"]);
+const prioritySchema = z.enum(["Low", "Medium", "High"]);
+const locationSchema = z.object({ lat: z.number(), lng: z.number(), address: z.string().min(3) });
+const submitSchema = z.object({
+  citizenName: z.string().min(2),
+  citizenMasterId: z.string().optional(),
+  requestType: z.string().min(2),
+  description: z.string().min(12),
+  departments: z.array(z.string()).optional(),
+  location: locationSchema.optional(),
+  attachments: z.array(z.string()).default([]),
+  language: z.string().default("English"),
+  consent: z.literal(true),
+  priority: prioritySchema.default("Medium"),
+});
+
+function demoUser(role: UserRole) {
+  return store.users.find((user) => user.role === role) ?? null;
+}
+
+function sessionRole(req: { headers: { cookie?: string } }): UserRole {
+  const role = (parse(req.headers.cookie ?? "")["sanyog-role"] ?? "") as string;
+  return typeof role === "string" && roleSchema.safeParse(role).success ? (role as UserRole) : "citizen";
+}
+
+function withResponse<T>(message: string, data: T) {
+  return { success: true as const, message, data };
+}
+
+function overallStatus(statuses: SanyogRequest["statusPerDepartment"]): SanyogRequest["overallStatus"] {
+  if (statuses.every((status) => status.status === "success")) return "completed";
+  if (statuses.some((status) => status.status === "failed")) return "manual-review";
+  if (statuses.some((status) => status.status === "retrying")) return "partial";
+  return "in-progress";
+}
+
+const trackingSuffix = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 6);
+function shortTrackingId() {
+  return `SYN-${trackingSuffix()}`;
+}
+
+export const appRouter = router({
+  system: router({
+    health: publicProcedure.query(() => withResponse("SANYOG services are operational", { status: "ok", timestamp: new Date().toISOString() })),
+  }),
+  auth: router({
+    me: publicProcedure.query(({ ctx }) => demoUser(sessionRole(ctx.req))),
+    demoLogin: publicProcedure.input(z.object({ role: roleSchema })).mutation(({ input, ctx }) => {
+      const options = getSessionCookieOptions(ctx.req);
+      ctx.res.cookie("sanyog-role", input.role, { ...options, maxAge: 8 * 60 * 60 * 1000 });
+      appendAudit("SESSION_LOGIN", demoUser(input.role)?.name ?? "SANYOG User", `Demo session started as ${input.role}`);
+      return withResponse(`Signed in as ${input.role}`, demoUser(input.role));
+    }),
+    logout: publicProcedure.mutation(({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return { success: true as const };
+    }),
+  }),
+  catalog: router({
+    bootstrap: publicProcedure.query(() => withResponse("SANYOG catalog loaded", { departments: store.departments, routingRules: store.routingRules, users: store.users })),
+  }),
+  citizen: router({
+    submit: publicProcedure.input(submitSchema).mutation(async ({ input }) => {
+      const departments = input.departments?.length ? resolveDepartments(input.requestType, input.departments) : getAllowedDepartments(input.requestType);
+      if (departments.length === 0) {
+        return { success: false as const, message: "The selected departments are not enabled for this request type.", data: null };
+      }
+      const trackingId = shortTrackingId();
+      const semanticResult = findSemanticDuplicates(input.description, input.requestType);
+      const duplicateFlag = semanticResult.isDuplicate || isPotentialDuplicate(input.description, input.requestType);
+      const normalized: SanyogRequest = {
+        id: `req-${nanoid(10)}`,
+        trackingId,
+        citizenMasterId: normalizeCitizenMasterId(input.citizenMasterId, `${input.citizenName}|${input.requestType}`),
+        citizenName: input.citizenName,
+        requestType: input.requestType,
+        description: input.description,
+        location: input.location ?? { lat: 0, lng: 0, address: "Maharashtra, India" },
+        attachments: input.attachments,
+        departments,
+        timestamp: new Date().toISOString(),
+        priority: input.priority as Priority,
+        duplicateFlag,
+        statusPerDepartment: departments.map((department) => ({ department, status: "pending", retryCount: 0, lastUpdated: new Date().toISOString() })),
+        overallStatus: "in-progress",
+        slaDueAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      };
+      normalized.statusPerDepartment = await dispatchToConnectors(normalized);
+      normalized.overallStatus = overallStatus(normalized.statusPerDepartment);
+      store.requests.unshift(normalized);
+      appendAudit("REQUEST_SUBMITTED", normalized.citizenName, `${trackingId} routed to ${departments.length} departments; consent=${input.consent}; language=${input.language}`);
+      return withResponse("Request submitted across connected departments", {
+        trackingId,
+        request: normalized,
+        duplicateFlag,
+        semanticSimilarity: semanticResult.similarity,
+        similarToTrackingId: semanticResult.matchingRequest?.trackingId,
+      });
+    }),
+    semanticCheck: publicProcedure
+      .input(z.object({ description: z.string().min(5), requestType: z.string().min(2) }))
+      .query(({ input }) => {
+        const result = findSemanticDuplicates(input.description, input.requestType);
+        return withResponse("Semantic duplicate check complete", result);
+      }),
+    track: publicProcedure.input(z.object({ trackingId: z.string().min(3) })).query(({ input }) => {
+      const request = getRequest(input.trackingId);
+      if (!request) return { success: false as const, message: "No request found for this tracking ID.", data: null };
+      return withResponse("Tracking record found", request);
+    }),
+    myRequests: publicProcedure.input(z.object({ citizenName: z.string().optional() }).optional()).query(({ input }) => {
+      const name = input?.citizenName;
+      return withResponse("Citizen requests loaded", store.requests.filter((request) => !name || request.citizenName === name));
+    }),
+  }),
+  official: router({
+    dashboard: publicProcedure.input(z.object({ department: z.string().optional(), priority: z.union([prioritySchema, z.literal("All")]).optional(), location: z.string().optional() }).optional()).query(({ input }) => {
+      const department = input?.department ?? "MahaDBT";
+      const requests = store.requests.filter((request) => request.departments.includes(department)).filter((request) => !input?.priority || input.priority === "All" || request.priority === input.priority).filter((request) => !input?.location || request.location.address.toLowerCase().includes(input.location.toLowerCase()));
+      const total = store.requests.length;
+      const completed = store.requests.filter((request) => request.overallStatus === "completed").length;
+      const resolutionHours = store.requests.filter((request) => request.overallStatus === "completed").map((request) => Math.max(1, (new Date(request.statusPerDepartment[0]?.lastUpdated ?? request.timestamp).getTime() - new Date(request.timestamp).getTime()) / 3600000));
+      const avgResolution = resolutionHours.length ? resolutionHours.reduce((sum, value) => sum + value, 0) / resolutionHours.length : 18.4;
+      const clusters = clusterReports(requests);
+      return withResponse("Official dashboard loaded", {
+        requests,
+        clusters,
+        analytics: {
+          totalRequests: total,
+          slaCompliance: Math.round((completed / Math.max(1, total)) * 100),
+          avgResolutionHours: Number(avgResolution.toFixed(1)),
+          clusterCount: clusters.length,
+        },
+        department,
+      });
+    }),
+    clusters: publicProcedure.query(() => {
+      const clusters = clusterReports(store.requests);
+      return withResponse("NLP semantic clusters generated", clusters);
+    }),
+    action: publicProcedure.input(z.object({ trackingId: z.string(), department: z.string(), action: z.enum(["Approve", "Reject", "Forward"]), note: z.string().optional() })).mutation(({ input }) => {
+      const request = getRequest(input.trackingId);
+      const status = request?.statusPerDepartment.find((item) => item.department === input.department);
+      if (!request || !status) return { success: false as const, message: "Assigned request not found.", data: null };
+      if (input.action === "Approve") { status.status = "success"; status.externalRefId ??= `${input.department.slice(0, 3).toUpperCase()}-${nanoid(6).toUpperCase()}`; status.note = input.note ?? "Accepted & Approved by assigned official"; }
+      if (input.action === "Reject") { status.status = "failed"; status.note = input.note ?? "Rejected by assigned official — manual review required"; }
+      if (input.action === "Forward") { status.status = "retrying"; status.retryCount = Math.min(3, status.retryCount + 1); status.note = input.note ?? "Forwarded to the next department queue"; }
+      status.lastUpdated = new Date().toISOString();
+      request.overallStatus = overallStatus(request.statusPerDepartment);
+      appendAudit(`OFFICIAL_${input.action.toUpperCase()}`, demoUser("official")?.name ?? "Official User", `${input.trackingId} · ${input.department} · ${input.action}`);
+      return withResponse(`Request ${input.action.toLowerCase()}d`, request);
+    }),
+  }),
+  admin: router({
+    overview: publicProcedure.query(() => withResponse("Admin overview loaded", { departments: store.departments.map((department) => ({ ...department, processedToday: store.requests.filter((request) => request.departments.includes(department.name)).length, successRate: 92 })), rules: store.routingRules, users: store.users, auditLog: store.auditLog })),
+    toggleConnector: publicProcedure.input(z.object({ department: z.string(), status: z.enum(["UP", "DELAYED", "DOWN"]) })).mutation(({ input }) => {
+      const department = updateConnector(input.department, input.status);
+      if (!department) return { success: false as const, message: "Connector not found.", data: null };
+      appendAudit("CONNECTOR_STATUS_CHANGED", demoUser("admin")?.name ?? "Admin User", `${input.department} set to ${input.status}`);
+      return withResponse("Connector status updated", department);
+    }),
+    updateRule: publicProcedure.input(z.object({ id: z.string(), requestType: z.string().min(2), departments: z.array(z.string()).min(1), active: z.boolean() })).mutation(({ input }) => {
+      const rule = store.routingRules.find((candidate) => candidate.id === input.id);
+      if (rule) Object.assign(rule, input);
+      else store.routingRules.push({ ...input });
+      appendAudit("ROUTING_RULE_UPDATED", demoUser("admin")?.name ?? "Admin User", `${input.requestType} → ${input.departments.join(", ")}`);
+      return withResponse("Routing rule saved", rule ?? input);
+    }),
+  }),
+});
+
+export type AppRouter = typeof appRouter;
