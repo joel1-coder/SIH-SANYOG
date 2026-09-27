@@ -60,14 +60,27 @@ export const appRouter = router({
   auth: router({
     me: publicProcedure.query(({ ctx }) => demoUser(sessionRole(ctx.req))),
     demoLogin: publicProcedure.input(z.object({ role: roleSchema })).mutation(({ input, ctx }) => {
-      const options = getSessionCookieOptions(ctx.req);
-      ctx.res.cookie("sanyog-role", input.role, { ...options, maxAge: 8 * 60 * 60 * 1000 });
+      try {
+        const options = getSessionCookieOptions(ctx.req);
+        if (ctx.res && typeof ctx.res.cookie === "function") {
+          ctx.res.cookie("sanyog-role", input.role, { ...options, maxAge: 8 * 60 * 60 * 1000 });
+        }
+      } catch (err) {
+        console.warn("[demoLogin] Cookie set warning:", err);
+      }
       appendAudit("SESSION_LOGIN", demoUser(input.role)?.name ?? "SANYOG User", `Demo session started as ${input.role}`);
       return withResponse(`Signed in as ${input.role}`, demoUser(input.role));
     }),
     logout: publicProcedure.mutation(({ ctx }) => {
-      const cookieOptions = getSessionCookieOptions(ctx.req);
-      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      try {
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        if (ctx.res && typeof ctx.res.clearCookie === "function") {
+          ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+          ctx.res.clearCookie("sanyog-role", { ...cookieOptions, maxAge: -1 });
+        }
+      } catch (err) {
+        console.warn("[logout] Cookie clear warning:", err);
+      }
       return { success: true as const };
     }),
   }),
