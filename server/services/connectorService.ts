@@ -1,4 +1,4 @@
-import type { SanyogRequest, StatusPerDepartment } from "@shared/types";
+import type { SanyogRequest, StatusPerDepartment } from "../../shared/types";
 import { connectorAdapters } from "../connectors";
 import { appendAudit, getDepartment } from "./demoStore";
 

@@ -18,11 +18,23 @@ const trpcHandler = createExpressMiddleware({
   },
 });
 
-app.use("/api/trpc", trpcHandler);
-app.use("/trpc", trpcHandler);
-
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", service: "SANYOG API" });
+});
+
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok", service: "SANYOG API" });
+});
+
+// Mount on all possible route prefixes that Vercel or clients might request
+app.use("/api/trpc", trpcHandler);
+app.use("/trpc", trpcHandler);
+app.use("/", (req, res, next) => {
+  // If the request path is a tRPC call directly (e.g. /auth.demoLogin)
+  if (req.path.includes(".")) {
+    return trpcHandler(req, res, next);
+  }
+  next();
 });
 
 // Catch-all JSON error handler so Vercel never returns HTML 500

@@ -1,5 +1,4 @@
-import type { SanyogRequest } from "@shared/types";
-import type { ConnectorStatus } from "@shared/types";
+import type { SanyogRequest, ConnectorStatus } from "../../shared/types";
 
 export interface ConnectorResult {
   status: "success" | "failed" | "delayed";

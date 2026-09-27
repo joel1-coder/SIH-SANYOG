@@ -6,7 +6,7 @@ import type {
   RoutingRule,
   SanyogRequest,
   SanyogUser,
-} from "@shared/types";
+} from "../../shared/types";
 
 const now = () => new Date().toISOString();
 const hoursFromNow = (hours: number) => new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();

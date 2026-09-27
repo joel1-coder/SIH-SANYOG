@@ -1,5 +1,5 @@
 import { store } from "./demoStore";
-import type { SanyogRequest } from "@shared/types";
+import type { SanyogRequest } from "../../shared/types";
 
 export type EmbeddingVector = Record<string, number>;
 
