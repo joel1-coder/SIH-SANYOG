@@ -34,9 +34,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
   // Role-based nav: submissions only for citizens, AI assistant only for citizens
   const links = user?.role === "citizen"
     ? [
+        { href: "/ai-assist", label: "AI Assistant", icon: Sparkles },
         { href: "/submit", label: "New submission", icon: ClipboardList },
         { href: "/submissions", label: "My submissions", icon: LayoutDashboard },
-        { href: "/ai-assist", label: "AI Assistant", icon: Sparkles },
       ]
     : user?.role === "admin"
       ? [

@@ -669,7 +669,7 @@ export default function Submit() {
           <div className="form-section-heading">
             <span className="form-step">02</span>
             <div>
-              <h2>Incident & Service Location</h2>
+              <h2>My location</h2>
               <p>Click on the map or use your GPS to drop a precise pin.</p>
             </div>
           </div>
@@ -686,7 +686,7 @@ export default function Submit() {
           <div className="form-section-heading">
             <span className="form-step">03</span>
             <div>
-              <h2>Supporting information & Language</h2>
+              <h2>Supporting file</h2>
               <p>Configure language and upload files.</p>
             </div>
           </div>

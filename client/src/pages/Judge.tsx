@@ -33,7 +33,7 @@ function ArchNode({ label, sub, color, bg }: { label: string; sub: string; color
 export default function Judge() {
   const [, navigate] = useLocation();
   const { theme, toggleTheme } = useTheme();
-  const login = trpc.auth.demoLogin.useMutation({ onSuccess: (_, vars) => navigate(vars.role === "citizen" ? "/submit" : vars.role === "admin" ? "/admin" : "/dashboard") });
+  const login = trpc.auth.demoLogin.useMutation({ onSuccess: (_, vars) => navigate(vars.role === "citizen" ? "/ai-assist" : vars.role === "admin" ? "/admin" : "/dashboard") });
   const overview = trpc.admin.overview.useQuery(undefined, { refetchOnWindowFocus: false });
   const stats = overview.data?.data;
   const totalRequests = (stats?.departments?.reduce((s, d) => s + (d.processedToday ?? 0), 0) ?? 0) || 4;

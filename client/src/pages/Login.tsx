@@ -6,7 +6,7 @@ import type { UserRole } from "@shared/types";
 import { useTheme } from "@/contexts/ThemeContext";
 
 const roles: { role: UserRole; title: string; copy: string; icon: typeof UserRound; next: string }[] = [
-  { role: "citizen", title: "Citizen", copy: "Submit a request and track every department response.", icon: UserRound, next: "/submit" },
+  { role: "citizen", title: "Citizen", copy: "Ask AI Assistant for certificates, fill basic details, and auto-submit to officials.", icon: UserRound, next: "/ai-assist" },
   { role: "official", title: "Official", copy: "Review assigned requests and act within SLA.", icon: UsersRound, next: "/dashboard" },
   { role: "admin", title: "Admin", copy: "Manage connectors, routing rules, and access.", icon: Wrench, next: "/admin" },
 ];

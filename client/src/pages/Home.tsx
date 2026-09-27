@@ -14,7 +14,7 @@ const DEMO_STEPS = [
 function GuidedDemoOverlay({ onClose }: { onClose: () => void }) {
   const [step, setStep] = useState(0);
   const [, navigate] = useLocation();
-  const login = trpc.auth.demoLogin.useMutation({ onSuccess: () => { onClose(); navigate("/submit"); } });
+  const login = trpc.auth.demoLogin.useMutation({ onSuccess: () => { onClose(); navigate("/ai-assist"); } });
   const current = DEMO_STEPS[step];
   const Icon = current.icon;
   return (
