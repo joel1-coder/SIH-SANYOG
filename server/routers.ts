@@ -127,7 +127,115 @@ export const appRouter = router({
       const name = input?.citizenName;
       return withResponse("Citizen requests loaded", store.requests.filter((request) => !name || request.citizenName === name));
     }),
+    aiAssist: publicProcedure
+      .input(z.object({ message: z.string().min(1) }))
+      .mutation(({ input }) => {
+        const msg = input.message.toLowerCase();
+
+        // Certificate knowledge base
+        const kb: Record<string, { title: string; description: string; documents: string[]; departments: string[]; time: string; tip: string }> = {
+          income: {
+            title: "Income Certificate",
+            description: "Certifies your annual family income. Required for scholarships, government schemes, fee waivers, and subsidies.",
+            documents: ["Aadhaar card (self + family)", "Ration card", "Salary slip or income proof (last 3 months)", "Bank passbook (last 6 months)", "Latest electricity/gas bill", "Passport-size photo (2 copies)"],
+            departments: ["MahaDBT", "Revenue Department"],
+            time: "7–10 working days",
+            tip: "Submit during first week of month for faster processing. Family income should be below ₹8 lakh/year for most schemes.",
+          },
+          community: {
+            title: "Community / Caste Certificate",
+            description: "Proves your caste or community (OBC/SC/ST/NT). Required for reservations, scholarships, and government job applications.",
+            documents: ["Aadhaar card", "School leaving certificate", "Father's caste certificate (if available)", "Ration card", "Birth certificate", "Revenue/Village record (7/12 extract)", "Self-declaration affidavit (₹100 stamp paper)"],
+            departments: ["Revenue Department", "Social Justice Department"],
+            time: "15–20 working days",
+            tip: "Carry original + 2 photocopies of every document. Visit your Tehsildar office with a gazette officer attestation.",
+          },
+          aadhaar: {
+            title: "Aadhaar Card / Correction",
+            description: "India's universal ID. Required for almost all government services, banking, and benefits.",
+            documents: ["Proof of Identity (PAN/Voter ID/Passport)", "Proof of Address (utility bill/bank statement)", "Proof of Date of Birth (birth certificate/school certificate)", "Existing Aadhaar (for correction)", "Mobile number linked to Aadhaar"],
+            departments: ["UIDAI / Aaple Sarkar"],
+            time: "New: 90 days | Update: 30 days",
+            tip: "Book an appointment at uidai.gov.in/enrolment before visiting. Update requests can be done online at myaadhaar.uidai.gov.in.",
+          },
+          scholarship: {
+            title: "Scholarship Application",
+            description: "Financial aid for students based on merit or economic background. Covers tuition, hostel, and exam fees.",
+            documents: ["Aadhaar card", "Income certificate (below ₹8 lakh)", "Caste certificate (for category scholarships)", "Marksheet/Grade card (previous year)", "Bonafide certificate from school/college", "Bank account details (student's own account)", "Fee receipt from institution", "Passport-size photo"],
+            departments: ["MahaDBT", "Social Justice Department", "Minority Development"],
+            time: "Processing after academic year start (June–Sept window)",
+            tip: "Apply on mahadbt.maharashtra.gov.in. Income + caste certificate must be less than 1 year old at time of application.",
+          },
+          domicile: {
+            title: "Domicile / Residence Certificate",
+            description: "Proves continuous residence in Maharashtra. Required for state-level job reservations and college admissions.",
+            documents: ["Aadhaar card", "Ration card showing Maharashtra address", "School certificates from Maharashtra (7th to 12th)", "Utility bills (3+ years old)", "Voter ID (Maharashtra)", "Passport (if available)"],
+            departments: ["Revenue Department", "Aaple Sarkar"],
+            time: "10–15 working days",
+            tip: "You or your parents must have resided in Maharashtra for at least 15 years. Bring school records as proof.",
+          },
+          birth: {
+            title: "Birth Certificate",
+            description: "Official proof of date and place of birth. Needed for school admissions, passport, and legal documents.",
+            documents: ["Hospital discharge summary", "Parent's Aadhaar cards", "Parent's marriage certificate", "Application form from Municipal Corporation / Gram Panchayat"],
+            departments: ["Municipal Corporation / Gram Panchayat", "Aaple Sarkar"],
+            time: "7 days (within 21 days of birth) | Late: 30–45 days",
+            tip: "Register within 21 days of birth to avoid late fees and affidavit requirements. Visit your nearest Municipal Corporation.",
+          },
+          pan: {
+            title: "PAN Card",
+            description: "Permanent Account Number — required for income tax filing, banking, and financial transactions above ₹50,000.",
+            documents: ["Aadhaar card (for e-KYC)", "Proof of identity", "Proof of date of birth", "Passport-size photo"],
+            departments: ["Income Tax Department (NSDL/UTIITSL)"],
+            time: "15–20 working days (physical) | Instant e-PAN",
+            tip: "Apply online at onlineservices.nsdl.com or get instant e-PAN using Aadhaar at incometax.gov.in. Completely free for e-PAN.",
+          },
+        };
+
+        // Smart keyword matching
+        const matches = Object.entries(kb).filter(([key]) => msg.includes(key));
+
+        // Also check common synonyms
+        if (!matches.length) {
+          if (msg.includes("obc") || msg.includes("sc") || msg.includes("st") || msg.includes("caste") || msg.includes("category")) matches.push(["community", kb.community]);
+          if (msg.includes("aadhar") || msg.includes("uid") || msg.includes("biometric")) matches.push(["aadhaar", kb.aadhaar]);
+          if (msg.includes("study") || msg.includes("student") || msg.includes("education") || msg.includes("college") || msg.includes("fee waiver")) matches.push(["scholarship", kb.scholarship]);
+          if (msg.includes("salary") || msg.includes("annual") || msg.includes("earning") || msg.includes("below poverty")) matches.push(["income", kb.income]);
+          if (msg.includes("residence") || msg.includes("resident") || msg.includes("address proof") || msg.includes("maharashtra")) matches.push(["domicile", kb.domicile]);
+          if (msg.includes("born") || msg.includes("hospital") || msg.includes("newborn") || msg.includes("registration")) matches.push(["birth", kb.birth]);
+          if (msg.includes("tax") || msg.includes("account number") || msg.includes("banking")) matches.push(["pan", kb.pan]);
+        }
+
+        if (matches.length > 0) {
+          const [, cert] = matches[0];
+          return withResponse("ai_cert", {
+            type: "certificate",
+            cert,
+          });
+        }
+
+        // Generic greeting / fallback
+        if (msg.includes("hello") || msg.includes("hi") || msg.includes("hey") || msg.includes("namaste")) {
+          return withResponse("ai_greeting", {
+            type: "greeting",
+            message: "Namaste! 🙏 I'm your SANYOG AI Assistant. I can help you understand what documents you need for government certificates. Try asking:\n\n• \"I need an Income Certificate\"\n• \"How to apply for a Community Certificate?\"\n• \"What documents for Scholarship?\"\n• \"Help me with Aadhaar correction\"",
+          });
+        }
+
+        if (msg.includes("help") || msg.includes("what can") || msg.includes("list")) {
+          return withResponse("ai_help", {
+            type: "list",
+            message: "I can guide you for these certificates:\n\n📄 **Income Certificate** — for schemes & scholarships\n🏷️ **Community/Caste Certificate** — OBC/SC/ST reservations\n🪪 **Aadhaar Card** — universal ID\n🎓 **Scholarship** — education funding\n🏠 **Domicile Certificate** — residency proof\n👶 **Birth Certificate** — date of birth proof\n💳 **PAN Card** — tax & banking ID\n\nJust tell me which one you need help with!",
+          });
+        }
+
+        return withResponse("ai_unknown", {
+          type: "unknown",
+          message: "I didn't quite catch that. I can help you with government certificates like Income, Community/Caste, Aadhaar, Scholarship, Domicile, Birth Certificate, or PAN. Try saying: \"I need an Income Certificate\" or \"Help with scholarship application\".",
+        });
+      }),
   }),
+
   official: router({
     dashboard: publicProcedure.input(z.object({ department: z.string().optional(), priority: z.union([prioritySchema, z.literal("All")]).optional(), location: z.string().optional() }).optional()).query(({ input }) => {
       const department = input?.department ?? "MahaDBT";

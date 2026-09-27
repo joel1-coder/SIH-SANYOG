@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Link, Route, Switch, useLocation } from "wouter";
-import { Bell, ChevronRight, ClipboardList, LayoutDashboard, LogOut, Menu, Moon, Settings2, Sun, X } from "lucide-react";
+import { Bell, ChevronRight, ClipboardList, LayoutDashboard, LogOut, Menu, Moon, Settings2, Sparkles, Sun, X } from "lucide-react";
 import { useState } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
@@ -15,6 +15,7 @@ import Submissions from "./pages/Submissions";
 import Dashboard from "./pages/Dashboard";
 import Admin from "./pages/Admin";
 import Judge from "./pages/Judge";
+import AIAssist from "./pages/AIAssist";
 import NotFound from "./pages/NotFound";
 
 function Brand() {
@@ -30,11 +31,12 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const overviewQuery = trpc.admin.overview.useQuery(undefined, { refetchInterval: 5000 });
   const auditLog = overviewQuery.data?.data.auditLog ?? [];
 
-  // Work 2 fix: "New submission" and "My submissions" only for citizens
+  // Role-based nav: submissions only for citizens, AI assistant only for citizens
   const links = user?.role === "citizen"
     ? [
         { href: "/submit", label: "New submission", icon: ClipboardList },
         { href: "/submissions", label: "My submissions", icon: LayoutDashboard },
+        { href: "/ai-assist", label: "AI Assistant", icon: Sparkles },
       ]
     : user?.role === "admin"
       ? [
@@ -128,6 +130,7 @@ function Router() {
     <Route path="/dashboard"><AppShell><Dashboard /></AppShell></Route>
     <Route path="/admin"><AppShell><Admin /></AppShell></Route>
     <Route path="/judge" component={Judge} />
+    <Route path="/ai-assist"><AppShell><AIAssist /></AppShell></Route>
     <Route path="/404" component={NotFound} />
     <Route component={NotFound} />
   </Switch>;
