@@ -1,8 +1,7 @@
 import "dotenv/config";
 import express from "express";
+import type { Request, Response, NextFunction } from "express";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { registerOAuthRoutes } from "../server/_core/oauth";
-import { registerStorageProxy } from "../server/_core/storageProxy";
 import { appRouter } from "../server/routers";
 import { createContext } from "../server/_core/context";
 
@@ -11,18 +10,14 @@ const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-registerStorageProxy(app);
-registerOAuthRoutes(app);
-
 const trpcHandler = createExpressMiddleware({
   router: appRouter,
   createContext,
   onError({ error, path }) {
-    console.error(`[tRPC API Error] path '${path}':`, error);
+    console.error(`[tRPC Error] path='${path}':`, error.message);
   },
 });
 
-// Handle both standard Express path (/api/trpc) and Vercel rewritten path (/trpc)
 app.use("/api/trpc", trpcHandler);
 app.use("/trpc", trpcHandler);
 
@@ -30,10 +25,10 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", service: "SANYOG API" });
 });
 
-// Global JSON error handler preventing HTML 500 responses
-app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error("[Vercel API Server Error]:", err);
-  res.status(500).json({ error: "Internal Server Error", message: err?.message || String(err) });
+// Catch-all JSON error handler so Vercel never returns HTML 500
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  console.error("[Vercel API Error]:", err);
+  res.status(500).json({ error: "Internal Server Error", message: String(err?.message ?? err) });
 });
 
 export default app;

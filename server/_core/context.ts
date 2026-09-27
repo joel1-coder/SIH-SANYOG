@@ -1,28 +1,26 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
-import type { User } from "../../drizzle/schema";
-import { sdk } from "./sdk";
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
   res: CreateExpressContextOptions["res"];
-  user: User | null;
+  user: null;
 };
 
+/**
+ * Context factory for tRPC.
+ *
+ * This app runs in demo mode — authentication is handled via the
+ * "sanyog-role" cookie read in each router procedure, not via a DB
+ * user record.  We skip the OAuth SDK to avoid pulling in
+ * drizzle-orm/mysql2 native binaries that crash Vercel serverless cold
+ * starts when DATABASE_URL is absent.
+ */
 export async function createContext(
   opts: CreateExpressContextOptions
 ): Promise<TrpcContext> {
-  let user: User | null = null;
-
-  try {
-    user = await sdk.authenticateRequest(opts.req);
-  } catch (error) {
-    // Authentication is optional for public procedures.
-    user = null;
-  }
-
   return {
     req: opts.req,
     res: opts.res,
-    user,
+    user: null,
   };
 }
